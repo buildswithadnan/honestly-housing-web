@@ -58,6 +58,10 @@ export async function POST(request: NextRequest) {
     console.log('✅ Step 1 Complete: Request body parsed');
     console.log('📦 Project data keys:', Object.keys(projectData));
 
+    // Check if this is a draft project
+    const isDraft = projectData.status === 'draft';
+    console.log('📋 Project type:', isDraft ? 'DRAFT' : 'ACTIVE');
+
     // Validate required fields
     console.log('📋 Step 2: Validating required fields...');
     if (!projectData.name || !projectData.clientId || !projectData.builderOrgId) {
@@ -73,38 +77,42 @@ export async function POST(request: NextRequest) {
     }
     console.log('✅ Step 2 Complete: All required fields present');
 
-    // Validate schema structure
-    console.log('📋 Step 3: Validating schema structure...');
-    if (!projectData.rooms || typeof projectData.rooms !== 'object') {
-      console.error('❌ Invalid rooms object:', projectData.rooms);
-      return NextResponse.json(
-        { error: 'Rooms object is required with room type counts', success: false },
-        { status: 400 }
-      );
-    }
+    // Validate schema structure (only for non-draft projects)
+    if (!isDraft) {
+      console.log('📋 Step 3: Validating schema structure...');
+      if (!projectData.rooms || typeof projectData.rooms !== 'object') {
+        console.error('❌ Invalid rooms object:', projectData.rooms);
+        return NextResponse.json(
+          { error: 'Rooms object is required with room type counts', success: false },
+          { status: 400 }
+        );
+      }
 
-    if (!projectData.fixtureCounts || typeof projectData.fixtureCounts !== 'object') {
-      console.error('❌ Invalid fixtureCounts object:', projectData.fixtureCounts);
-      return NextResponse.json(
-        { error: 'FixtureCounts object is required', success: false },
-        { status: 400 }
-      );
-    }
+      if (!projectData.fixtureCounts || typeof projectData.fixtureCounts !== 'object') {
+        console.error('❌ Invalid fixtureCounts object:', projectData.fixtureCounts);
+        return NextResponse.json(
+          { error: 'FixtureCounts object is required', success: false },
+          { status: 400 }
+        );
+      }
 
-    if (!projectData.progress || typeof projectData.progress !== 'object') {
-      console.error('❌ Invalid progress object:', projectData.progress);
-      return NextResponse.json(
-        { error: 'Progress object is required', success: false },
-        { status: 400 }
-      );
+      if (!projectData.progress || typeof projectData.progress !== 'object') {
+        console.error('❌ Invalid progress object:', projectData.progress);
+        return NextResponse.json(
+          { error: 'Progress object is required', success: false },
+          { status: 400 }
+        );
+      }
+      console.log('✅ Step 3 Complete: Schema validation passed');
+    } else {
+      console.log('ℹ️ Step 3: Skipped schema validation (draft project)');
     }
-    console.log('✅ Step 3 Complete: Schema validation passed');
 
     const now = new Date();
     console.log('💾 Step 4: Creating project in Firestore...');
 
-    // Create project in Firestore with schema-compliant structure
-    const projectRef = await adminDb.collection('projects').add({
+    // Build project document
+    const projectDoc: any = {
       name: projectData.name,
       builderOrgId: projectData.builderOrgId,
       clientId: projectData.clientId,
@@ -113,16 +121,44 @@ export async function POST(request: NextRequest) {
       address: projectData.address || '',
       startDate: projectData.startDate || now.toISOString(),
       targetCompletionDate: projectData.targetCompletionDate || null,
-      rooms: projectData.rooms,
-      fixtureCounts: projectData.fixtureCounts,
-      squareFootage: projectData.squareFootage || null,
-      progress: projectData.progress,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       createdBy: projectData.createdBy,
-    });
+    };
+
+    // Add draftData if it's a draft
+    if (isDraft && projectData.draftData) {
+      projectDoc.draftData = projectData.draftData;
+      console.log('✅ Added draftData to project document');
+    }
+
+    // Only add these fields for non-draft projects
+    if (!isDraft) {
+      projectDoc.rooms = projectData.rooms;
+      projectDoc.fixtureCounts = projectData.fixtureCounts;
+      projectDoc.squareFootage = projectData.squareFootage || null;
+      projectDoc.progress = projectData.progress;
+    }
+
+    // Create project in Firestore
+    const projectRef = await adminDb.collection('projects').add(projectDoc);
 
     console.log('✅ Step 4 Complete: Project created with ID:', projectRef.id);
+
+    // Return early for draft projects - don't update user projectIds
+    if (isDraft) {
+      console.log('ℹ️ Returning early for draft project (no user updates)');
+      const draftResponse = {
+        success: true,
+        id: projectRef.id,
+        projectId: projectRef.id,
+        message: 'Draft project saved successfully',
+      };
+      console.log('========================================');
+      console.log('✅ DRAFT PROJECT SAVED SUCCESSFULLY');
+      console.log('========================================');
+      return NextResponse.json(draftResponse);
+    }
 
     // Add project to client's projectIds array
     console.log('📝 Step 5: Updating client projectIds...');
@@ -185,20 +221,7 @@ export async function POST(request: NextRequest) {
       projectId: projectRef.id,
       project: {
         id: projectRef.id,
-        name: projectData.name,
-        builderOrgId: projectData.builderOrgId,
-        clientId: projectData.clientId,
-        clientEmail: projectData.clientEmail || '',
-        status: projectData.status || 'setup',
-        address: projectData.address || '',
-        startDate: projectData.startDate || now.toISOString(),
-        rooms: projectData.rooms,
-        fixtureCounts: projectData.fixtureCounts,
-        squareFootage: projectData.squareFootage || null,
-        progress: projectData.progress,
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-        createdBy: projectData.createdBy,
+        ...projectDoc,
       },
       message: 'Project created successfully',
     };

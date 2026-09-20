@@ -40,6 +40,38 @@ The system uses 3 main project statuses:
 - **Only accessible to Builder, Designer, and Admin roles**
 - **Clients cannot access this page**
 
+### Draft Projects
+
+**Draft Status** - Projects can be saved as drafts at any stage of creation:
+- Click "Save as Draft" button in wizard header (top right)
+- Saves all current wizard state to Firestore
+- Draft projects appear in projects list with amber "Draft" badge
+- Can resume editing from where you left off
+- Converts to "active" status when wizard is completed
+
+**Resume Draft Workflow:**
+1. Go to projects list (`/projects`)
+2. Find draft project (marked with amber "Draft" badge)
+3. Click "Resume Editing" button or click on the draft project card
+4. Wizard opens at the step where you left off
+5. All data is restored (project name, client, rooms, budget, etc.)
+6. Continue editing or complete the wizard
+7. Click "Create Project" to convert draft to active project
+
+**Draft Project Data Structure:**
+- Status: `draft`
+- Contains `draftData` field with:
+  - `currentStep`: The wizard step where user left off
+  - `wizardState`: All form data (project name, rooms, budget, etc.)
+- When converted to active, `draftData` is removed and subcollections are created
+
+**Save as Draft Feature:**
+- Available on all wizard steps
+- Minimum required: project name and client
+- All other fields are optional when saving as draft
+- Draft can be saved multiple times (updates existing draft)
+- Drafts do not create subcollections (rooms, categories, items) until completed
+
 ### Complete Testing Flow
 
 #### Phase 1: Project Creation (Builder/Designer/Admin)
@@ -453,6 +485,22 @@ The system uses 3 main project statuses:
 - [ ] Project status is "active" after creation
 - [ ] Can save configuration as template
 
+**Draft Projects:**
+- [ ] Can save draft from any wizard step
+- [ ] "Save as Draft" button visible and functional in header
+- [ ] Draft appears in projects list with amber "Draft" badge
+- [ ] "Resume Editing" button works correctly
+- [ ] Can resume draft and all data is restored correctly
+- [ ] Wizard opens at the correct step when resuming
+- [ ] Can complete draft and converts to active project
+- [ ] Draft data is properly stored in Firestore with draftData field
+- [ ] Can create multiple drafts for different clients
+- [ ] Draft conversion removes draftData field and creates subcollections
+- [ ] Can save draft again after resuming (update functionality)
+- [ ] Draft projects can be deleted
+- [ ] Square footage and rooms are optional when saving draft
+- [ ] Warning messages appear when skipping important fields
+
 **Edit Configuration (Builder/Designer/Admin Only):**
 - [ ] Can access edit page from project detail
 - [ ] Clients are redirected away from edit page
@@ -585,6 +633,97 @@ The system uses 3 main project statuses:
 
 **Issue**: Approval/Reject buttons not visible on client side for selections
 **Solution**: Updated selection detail page to check for multiple status values: `'awaitingClientApproval'`, `'awaiting_approval'`, `'notStarted'`, and `'NotStarted'`. The `showActions` prop now displays buttons for any of these statuses (as long as the item is not locked).
+
+**Issue**: Draft project won't resume or shows error
+**Solution**: Ensure project status is 'draft' and draftData field exists in Firestore. Check browser console for specific errors. Verify the project belongs to the current user's organization.
+
+**Issue**: Draft save button is disabled
+**Solution**: Ensure both project name and client are selected. These are the minimum required fields to save a draft.
+
+**Issue**: Resumed draft shows empty fields
+**Solution**: Check that the draftData field in Firestore contains the wizardState object with all form data. If data is missing, the draft may have been saved with an older version of the code.
+
+**Issue**: Can't proceed through wizard steps
+**Solution**: This was fixed by relaxing validation rules. Square footage, rooms, and scope of work are now optional. Check console for any JavaScript errors that might be blocking progression.
+
+## Budget Category Management
+
+### Accessing the Budget Category Manager
+
+**Location**: `/builder/budget-categories`
+
+**How to Access:**
+1. **From User Menu**: Click user avatar in top-right → Select "Budget Categories"
+2. **From Project Creation**: Click "Manage Categories" button in Budget step (Step 2)
+3. **Direct URL**: Navigate to `/builder/budget-categories`
+
+### Features
+
+**Category Management:**
+- Add custom categories beyond the 28 standard construction categories
+- Edit category codes and names (custom categories only)
+- Reorder categories with drag-and-drop
+- Mark categories as optional/required
+- Delete custom categories (standard categories are protected)
+- Export categories as JSON for backup or sharing
+- Import categories from JSON file
+- Reset to default 28 categories
+
+**Standard Construction Categories (01-28):**
+- 01 - Site Work
+- 02 - Foundation
+- 03 - Framing
+- 04 - Roofing
+- 05 - Exterior Materials
+- 06 - Windows & Doors
+- 07 - Plumbing
+- 08 - HVAC
+- 09 - Electrical
+- 10 - Insulation
+- 11 - Drywall
+- 12 - Interior Doors & Trim
+- 13 - Cabinetry
+- 14 - Countertops
+- 15 - Flooring
+- 16 - Tile
+- 17 - Paint
+- 18 - Lighting
+- 19 - Plumbing Fixtures
+- 20 - Appliances
+- 21 - Fireplace (optional)
+- 22 - Mirrors & Glass
+- 23 - Hardware
+- 24 - Garage (optional)
+- 25 - Deck & Patio (optional)
+- 26 - Permits & Fees
+- 27 - Cleanup & Final
+- 28 - Contingency
+
+### Important Notes
+
+**Category Storage:**
+- Categories stored in browser localStorage
+- Changes apply to all NEW projects only
+- Existing projects keep their original categories
+- Not synced across devices automatically
+
+**Sharing Categories:**
+- Use Export to save categories as JSON
+- Share JSON file with team members
+- Use Import on other devices to load same categories
+
+**Project Creation Integration:**
+- Custom categories automatically appear in project creation wizard
+- Budget step uses your customized category list
+- Fallback to default 28 categories if no custom categories exist
+
+### Category Customization in Projects
+
+During project creation, you can also:
+- Add project-specific custom categories (inline during budget entry)
+- These are saved per-project in Firestore
+- Different from global budget categories in localStorage
+- Good for one-off custom categories specific to a single project
 
 ## Important Conventions
 

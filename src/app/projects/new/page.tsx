@@ -66,6 +66,15 @@ function buildRoomName(room: RoomSelection, index: number) {
   return room.quantity > 1 ? `${room.displayName} ${index + 1}` : room.displayName;
 }
 
+const WarningBanner = ({ message }: { message: string }) => (
+  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-button flex items-start gap-2">
+    <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+    </svg>
+    <p className="text-sm text-amber-800">{message}</p>
+  </div>
+);
+
 function buildRoomDetailsFromSelections(roomSelections: RoomSelection[], customRooms: CustomRoom[]) {
   const seededRooms: RoomDetail[] = [];
 
@@ -138,6 +147,8 @@ export default function NewProjectPage() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState<Step>('basic');
   const [saving, setSaving] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   // Step 1: Basic Info
@@ -269,6 +280,64 @@ export default function NewProjectPage() {
       }))
     );
   }, []);
+
+  // Load draft project if resuming
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const resumeProjectId = searchParams.get('resume');
+    
+    if (resumeProjectId && user) {
+      loadDraftProject(resumeProjectId);
+    }
+  }, [user]);
+
+  const loadDraftProject = async (projectId: string) => {
+    try {
+      const project: any = await apiClient.get(`/projects/${projectId}`);
+      
+      if (project.status !== 'draft' || !project.draftData) {
+        setError('This is not a draft project');
+        return;
+      }
+
+      const { currentStep: savedStep, wizardState } = project.draftData;
+      
+      // Restore all wizard state
+      setProjectName(wizardState.projectName || '');
+      setDescription(wizardState.description || '');
+      setClientEmail(wizardState.clientEmail || '');
+      setSelectedClient(wizardState.selectedClient || null);
+      setBudget(wizardState.budget || '');
+      setAddress(wizardState.address || '');
+      setRoomCounts(wizardState.roomCounts || { bedrooms: 0, bathrooms: 0, kitchen: 0, livingRoom: 0, diningRoom: 0, pantry: 0, laundry: 0, office: 0, bonusRoom: 0 });
+      setGeneratedRooms(wizardState.generatedRooms || []);
+      setRoomSelections(wizardState.roomSelections || buildRoomSelections());
+      setCustomRooms(wizardState.customRooms || []);
+      setRoomDetails(wizardState.roomDetails || []);
+      setSquareFootage(wizardState.squareFootage || 0);
+      setSystemsData(wizardState.systemsData || { hvac: { tonnage: '', brand: '', location: '' }, septic: { isAerobic: false, aerobicType: '', hasTank: false }, propane: { size: '', otherSize: '' }, waterHeater: { fuelType: '', type: '', tankSize: '' } });
+      setExteriorDetails(wizardState.exteriorDetails || [{ id: 'exterior', name: 'Exterior', type: 'exterior', fixtures: [] }]);
+      setCabinetrySelections(wizardState.cabinetrySelections || []);
+      setCategories(wizardState.categories || DEFAULT_CATEGORIES);
+      setAllowances(wizardState.allowances || []);
+      setHierarchicalBudget(wizardState.hierarchicalBudget || []);
+      setConstructionBudget(wizardState.constructionBudget || []);
+      setScopeOfWorkData(wizardState.scopeOfWorkData || {});
+      setNotesByRoomCategory(wizardState.notesByRoomCategory || {});
+      setTemplateName(wizardState.templateName || '');
+      setSaveAsTemplate(wizardState.saveAsTemplate || false);
+      setSelectedTemplateId(wizardState.selectedTemplateId || 'empty');
+      
+      // Store the draft ID and set the current step
+      setEditingDraftId(projectId);
+      setCurrentStep(savedStep);
+      
+      showSuccess('Draft project loaded');
+    } catch (err) {
+      console.error('Failed to load draft:', err);
+      setError('Failed to load draft project');
+    }
+  };
 
   const steps: { id: Step; title: string; description: string }[] = [
     { id: 'basic', title: 'Basic Info', description: 'Project name and client' },
@@ -535,6 +604,78 @@ export default function NewProjectPage() {
     return constructionBudget.reduce((sum, item) => sum + (item.budgetedAmount || 0), 0);
   };
 
+  const handleSaveDraft = async () => {
+    try {
+      setSavingDraft(true);
+      setError('');
+
+      // Validate minimum required fields
+      if (!projectName.trim() || !selectedClient) {
+        setError('Project name and client are required to save as draft');
+        return;
+      }
+
+      // Collect all wizard state
+      const draftData = {
+        currentStep,
+        wizardState: {
+          projectName,
+          description,
+          clientEmail,
+          selectedClient,
+          budget,
+          address,
+          roomCounts,
+          generatedRooms,
+          roomSelections,
+          customRooms,
+          roomDetails,
+          squareFootage,
+          systemsData,
+          exteriorDetails,
+          cabinetrySelections,
+          categories,
+          allowances,
+          hierarchicalBudget,
+          constructionBudget,
+          scopeOfWorkData,
+          notesByRoomCategory,
+          templateName,
+          saveAsTemplate,
+          selectedTemplateId,
+        }
+      };
+
+      // Create draft project
+      const projectPayload = {
+        name: projectName.trim(),
+        builderOrgId: profile?.builderOrgId || user?.uid || '',
+        clientId: selectedClient.uid || '',
+        clientEmail: selectedClient.email || '',
+        status: 'draft',
+        address: address?.trim() || '',
+        startDate: new Date().toISOString(),
+        draftData,
+        createdBy: user?.uid || '',
+      };
+
+      const response: any = await apiClient.post('/projects', projectPayload);
+      const projectId = response?.id || response?.projectId;
+
+      if (!projectId) {
+        throw new Error('Failed to save draft project');
+      }
+
+      showSuccess('Draft saved successfully');
+      router.push('/projects');
+    } catch (err) {
+      console.error('Failed to save draft:', err);
+      setError(err instanceof Error ? err.message : 'Failed to save draft');
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
   const handleSubmit = async () => {
     try {
       setSaving(true);
@@ -613,12 +754,31 @@ export default function NewProjectPage() {
 
       // Create the project record, then persist the selected room options as subcollections.
       console.log('🌐 Sending project creation request...');
-      const projectResponseOnly: any = await apiClient.post('/projects', projectPayload);
+      
+      let createdProjectId;
 
-      const createdProjectId = projectResponseOnly?.id || projectResponseOnly?.projectId;
+      if (editingDraftId) {
+        // Update existing draft project - convert to active
+        console.log('🔄 Converting draft to active project:', editingDraftId);
+        
+        // First, update the project document to active status and remove draftData
+        await apiClient.patch(`/projects/${editingDraftId}`, {
+          ...projectPayload,
+          status: 'active',
+          draftData: null, // Remove draft data when converting to active
+        });
+        
+        createdProjectId = editingDraftId;
+        console.log('✅ Draft converted to active project:', createdProjectId);
+      } else {
+        // Create new project
+        const projectResponseOnly: any = await apiClient.post('/projects', projectPayload);
+        createdProjectId = projectResponseOnly?.id || projectResponseOnly?.projectId;
 
-      if (!createdProjectId) {
-        throw new Error('Failed to create project');
+        if (!createdProjectId) {
+          throw new Error('Failed to create project');
+        }
+        console.log('✅ New project created:', createdProjectId);
       }
 
       const createdCategoriesByName = new Map<string, string>();
@@ -826,32 +986,24 @@ export default function NewProjectPage() {
   const canProceed = () => {
     switch (currentStep) {
       case 'basic':
-        return projectName.trim() && selectedClient && squareFootage > 0;
+        // Only require project name and client - square footage is optional
+        return projectName.trim() && selectedClient;
       case 'budgets':
         return true; // Budget entry is optional
       case 'roomCounts':
-        return roomCounts.bedrooms > 0 || roomCounts.bathrooms > 0;
+        return true; // Room configuration is optional - can add later
       case 'roomNames':
-        return generatedRooms.length > 0;
+        return true; // Allow proceeding even if no rooms
       case 'roomSelections':
         return true; // Room selection options are optional
+      case 'systems':
+        return true; // Systems configuration is optional
       case 'exterior':
         return true; // Exterior selections are optional
       case 'cabinetry':
         return true; // Cabinetry is optional
       case 'scopeOfWork':
-        // All categories with budgets must have scope completed or skipped
-        const categoriesWithBudget = hierarchicalBudget.filter(cat => {
-          const total = calculateCategoryTotal(cat);
-          return total > 0;
-        });
-        
-        if (categoriesWithBudget.length === 0) return true; // No budgets set, can skip
-        
-        return categoriesWithBudget.every(cat => {
-          const scope = scopeOfWorkData[cat.id];
-          return scope && (scope.status === 'completed' || scope.status === 'skipped');
-        });
+        return true; // Scope of work is optional - can complete later
       case 'template':
         return true;
       default:
@@ -883,6 +1035,14 @@ export default function NewProjectPage() {
                 Create New Project
               </h1>
             </div>
+            <Button
+              onClick={handleSaveDraft}
+              disabled={savingDraft || !projectName.trim() || !selectedClient}
+              variant="outline"
+              className="hidden sm:flex"
+            >
+              {savingDraft ? 'Saving...' : 'Save as Draft'}
+            </Button>
           </div>
         </div>
       </nav>
@@ -1069,14 +1229,17 @@ export default function NewProjectPage() {
               </div>
 
               <Input
-                label="Square Footage"
+                label="Square Footage (optional)"
                 type="number"
                 min="0"
                 value={squareFootage || ''}
                 onChange={(e) => setSquareFootage(parseInt(e.target.value) || 0)}
                 placeholder="e.g., 2500"
-                required
               />
+
+              {(!squareFootage || squareFootage === 0) && currentStepIndex > 0 && (
+                <WarningBanner message="⚠️ Square footage not entered - you can add this later in project settings" />
+              )}
 
               <Input
                 label="Total Budget (optional)"
@@ -1118,6 +1281,10 @@ export default function NewProjectPage() {
                 value={roomCounts}
                 onChange={setRoomCounts}
               />
+
+              {Object.values(roomCounts).every(count => count === 0) && currentStepIndex > steps.findIndex(s => s.id === 'roomCounts') && (
+                <WarningBanner message="⚠️ No rooms configured - you can add rooms later in the configuration page" />
+              )}
             </div>
           )}
 
@@ -1315,13 +1482,47 @@ export default function NewProjectPage() {
           {/* Step 2: Construction Budget */}
           {currentStep === 'budgets' && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-2xl font-display font-bold text-neutral-900 mb-2">
-                  Construction Budget
-                </h2>
-                <p className="text-neutral-600">
-                  Enter budgeted amounts for each construction category. Click on a category to expand and set subcategory budgets.
-                </p>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-display font-bold text-neutral-900 mb-2">
+                    Construction Budget
+                  </h2>
+                  <p className="text-neutral-600">
+                    Enter budgeted amounts for each construction category. Click on a category to expand and set subcategory budgets.
+                  </p>
+                </div>
+                <Button
+                  onClick={() => window.open('/builder/budget-categories', '_blank')}
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2 hidden sm:flex flex-shrink-0"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                  </svg>
+                  Manage Categories
+                </Button>
+              </div>
+
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="text-sm text-blue-800">
+                    <strong>Customize Budget Categories:</strong> You can add, edit, remove, or reorder these 
+                    construction categories in the{' '}
+                    <a 
+                      href="/builder/budget-categories" 
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline font-semibold hover:text-blue-900"
+                    >
+                      Budget Category Manager
+                    </a>
+                    . Changes will apply to all future projects.
+                  </div>
+                </div>
               </div>
 
               <HierarchicalBudgetInput

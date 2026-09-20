@@ -183,7 +183,14 @@ export default function ProjectsPage() {
               <Card
                 key={project.id}
                 hover
-                onClick={() => router.push(`/projects/${project.id}`)}
+                onClick={() => {
+                  // For draft projects, go to resume editing instead of viewing
+                  if (project.status === 'draft') {
+                    router.push(`/projects/new?resume=${project.id}`);
+                  } else {
+                    router.push(`/projects/${project.id}`);
+                  }
+                }}
                 className="cursor-pointer"
               >
                 <h3 className="text-lg font-semibold text-neutral-900 mb-2">{project.name}</h3>
@@ -192,12 +199,13 @@ export default function ProjectsPage() {
                 )}
                 <div className="flex items-center justify-between gap-3">
                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                    project.status === 'draft' ? 'bg-amber-100 text-amber-800' :
                     project.status === 'completed' ? 'bg-green-100 text-green-800' :
                     project.status === 'active' ? 'bg-brass-100 text-brass-800' :
                     project.status === 'setup' ? 'bg-blue-100 text-blue-800' :
                     'bg-neutral-100 text-neutral-800'
                   }`}>
-                    {project.status || 'Active'}
+                    {project.status === 'draft' ? 'Draft' : project.status || 'Active'}
                   </span>
                   {project.budget && (
                     <span className="text-sm font-medium text-neutral-700">
@@ -205,6 +213,12 @@ export default function ProjectsPage() {
                     </span>
                   )}
                 </div>
+
+                {project.status === 'draft' && (
+                  <div className="mt-4 rounded-button bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                    Incomplete project - Click to resume editing
+                  </div>
+                )}
 
                 {project.status === 'completed' && project.completedAt && (
                   <div className="mt-4 rounded-button bg-neutral-50 px-3 py-2 text-xs text-neutral-700">
@@ -218,7 +232,7 @@ export default function ProjectsPage() {
                   </div>
                 )}
 
-                {isBuilder && (
+                {isBuilder && project.status !== 'draft' && (
                   <div className="mt-4 border-t border-neutral-100 pt-4" onClick={(event) => event.stopPropagation()}>
                     {isEditing ? (
                       <div className="space-y-3">
@@ -274,6 +288,28 @@ export default function ProjectsPage() {
                         </Button>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {isBuilder && project.status === 'draft' && (
+                  <div className="mt-4 border-t border-neutral-100 pt-4" onClick={(event) => event.stopPropagation()}>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => router.push(`/projects/new?resume=${project.id}`)}
+                      >
+                        Resume Editing
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleDeleteProject(project)}
+                        disabled={deletingProjectId === project.id}
+                        className="border-red-200 text-red-700 hover:bg-red-50"
+                      >
+                        {deletingProjectId === project.id ? 'Deleting...' : 'Delete'}
+                      </Button>
+                    </div>
                   </div>
                 )}
               </Card>
